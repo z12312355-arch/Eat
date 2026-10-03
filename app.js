@@ -15,7 +15,7 @@ let lastRequest = 0;
 const kindNames = {restaurant:'餐廳 / 正餐',fast_food:'速食 / 小吃',cafe:'咖啡 / 輕食',manual:'口袋名單'};
 const cuisineNames = {chinese:'中式',taiwanese:'台式',japanese:'日式',korean:'韓式',italian:'義式',noodle:'麵食',noodles:'麵食',burger:'漢堡',pizza:'披薩',coffee_shop:'咖啡',vegetarian:'素食',regional:'地方料理',breakfast:'早餐',hotpot:'火鍋'};
 function cuisines(value='') { return value.split(';').filter(Boolean).map(c=>cuisineNames[c] || c).join(' / '); }
-function status(text,error=false) { $('status').textContent=text; $('status').classList.toggle('error',error); }
+function status(text,error=false) { $('status').hidden=!text; $('status').textContent=text; $('status').classList.toggle('error',error); }
 function persist() {
   try { localStorage.setItem(storeKey,JSON.stringify({manual:state.manual,history:state.history,blocked:state.blocked})); }
   catch { status('瀏覽器無法儲存紀錄；目前仍可使用，重新開啟後可能消失。',true); }
@@ -26,9 +26,10 @@ function distanceLabel(p) { return Number.isFinite(p.distance) ? (p.distance<100
 function make(tag,text,className) { const el=document.createElement(tag); if(text!==undefined) el.textContent=text; if(className) el.className=className; return el; }
 function button(text,action,className='text-button') { const el=make('button',text,className); el.type='button'; el.addEventListener('click',action); return el; }
 function link(text,url) { const el=make('a',text); el.href=url; el.target='_blank'; el.rel='noopener noreferrer'; return el; }
-function clearResult() { state.result=null; $('result').hidden=true; }
+function clearResult() { state.result=null; $('result').hidden=true; document.querySelector('.wheel-card').classList.remove('has-result'); }
 function update() {
   const candidates=pool();
+  $('filter-summary').textContent=$('radius-label').textContent+' · '+($('kind').value==='all'?'類型不限':kindNames[$('kind').value]);
   $('pool-count').textContent=candidates.length+' 家候選';
   $('list-count').textContent=places().length;
   $('spin').disabled=state.busy || !candidates.length;
@@ -75,7 +76,7 @@ function renderList(candidates) {
     body.append(make('strong',(indexes.has(p.id)?indexes.get(p.id)+'. ':'')+p.name),make('small',distanceLabel(p)+' · '+(cuisines(p.cuisine)||kindNames[p.kind]||'範例')));
     if(blocked || recent) body.append(make('small',blocked?'已排除：不想再抽到':'已排除：最近 7 天吃過'));
     const actions=make('div',undefined,'restaurant-actions');
-    if(p.source!=='demo') actions.append(link('Google Maps ↗',mapsUrl(p)));
+    if(p.source!=='demo') actions.append(link('查看餐廳 ↗',mapsUrl(p)));
     if(p.source==='manual') actions.append(button('刪除',()=>{state.manual=state.manual.filter(x=>x.id!==p.id);state.selected.delete(p.id);persist();clearResult();update();}));
     if(!blocked && p.source!=='demo') actions.append(button('不想再抽到',()=>{state.blocked.push({id:p.id,name:p.name});persist();clearResult();update();}));
     body.append(actions);row.append(check,body);container.append(row);
@@ -105,6 +106,7 @@ $('locate').addEventListener('click',()=>{
   $('locate').disabled=true;status('正在取得定位…');
   navigator.geolocation.getCurrentPosition(pos=>{
     $('locate').disabled=false;setLocation(pos.coords.latitude,pos.coords.longitude,'目前位置 · 精度約 '+Math.round(pos.coords.accuracy)+' 公尺');
+    searchNearby();
   },error=>{
     $('locate').disabled=false;
     status(error.code===1?'定位權限未開啟。可到瀏覽器設定允許定位，或使用手動位置。':error.code===3?'定位逾時，請移到訊號較好的位置再試，或使用手動位置。':'暫時無法取得位置，請改用手動位置。',true);
@@ -123,9 +125,10 @@ function lock() {
   return ()=>{state.busy=false;disabled.forEach(([el,value])=>{if(el.isConnected)el.disabled=value;});update();};
 }
 function installRemote(items) {
+  $('search-options').open=false;
   state.remote=items;state.selected=new Set([...items.slice(0,12),...state.manual].map(p=>p.id));state.rotation=0;clearResult();update();
 }
-$('search').addEventListener('click',async()=>{
+async function searchNearby() {
   if(!state.location || state.busy)return;
   const radius=Number($('radius').value),location={...state.location},key=location.lat+','+location.lon+','+radius;
   const stored=cache.get(key);
@@ -144,9 +147,12 @@ $('search').addEventListener('click',async()=>{
     status(items.length?'找到 '+items.length+' 家餐廳。'+(items.length>12?'預設勾選最近 12 家，其餘可在名單勾選。':'取消不想吃的，接著轉一下！'):'這個範圍沒有已收錄的餐廳。可擴大距離，或手動加入 Google Maps 找到的店。');
   } catch(error) { status((error.name==='AbortError'?'查詢逾時，請縮小距離或稍後重試。':error instanceof TypeError?'無法連線，請確認網路或稍後再試。':error.message)+' 你仍可使用手動候選。',true); }
   finally {clearTimeout(timeout);unlock();}
-});
+  if(pool().length) { $('search-options').open=false; document.querySelector('.wheel-card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'}); }
+}
+$('search').addEventListener('click',searchNearby);
 $('radius').addEventListener('input',()=>{
   const r=Number($('radius').value);$('radius-label').textContent=r<1000?r+' 公尺':(r/1000).toLocaleString('zh-TW')+' 公里';
+  $('filter-summary').textContent=$('radius-label').textContent+' · '+($('kind').value==='all'?'類型不限':kindNames[$('kind').value]);
   if(state.remote.some(p=>p.source==='osm')) {state.remote=[];state.selected=new Set(state.manual.map(p=>p.id));clearResult();status('距離已更改，請重新搜尋附近餐廳。');update();}
 });
 $('kind').addEventListener('change',()=>{clearResult();state.rotation=0;update();});
@@ -164,27 +170,36 @@ $('add-form').addEventListener('submit',event=>{
 });
 $('demo').addEventListener('click',()=>{
   installRemote(['巷口牛肉麵','日式咖哩飯','手工水餃','越式河粉','暖心小火鍋','義大利麵','香香滷肉飯','早午餐'].map((name,i)=>({id:'demo:'+i,name,kind:'demo',source:'demo'})));
-  status('目前是試玩範例，並非附近真實店家。設定位置後搜尋即可換成真實資料。');
+  $('search-options').open=false;
+  status('試玩模式：範例店名，非真實搜尋結果。');
 });
 function showResult(p) {
   state.result=p;const el=$('result');el.replaceChildren();el.hidden=false;
-  el.append(make('span',p.source==='demo'?'DEMO RESULT · 試玩結果':'THE UNIVERSE HAS DECIDED','eyebrow'),make('h3',p.name),make('p',distanceLabel(p)+(p.address?' · '+p.address:'')+(p.hours?' · 營業時間（原始資料）：'+p.hours:'')));
-  if(p.source!=='demo') el.append(make('p','營業狀態與價格請到 Google Maps 確認。'));
+  document.querySelector('.wheel-card').classList.add('has-result');
+  el.append(make('span',p.source==='demo'?'試玩結果':'今天就吃這家','eyebrow'));
+  const title=make('h3');
+  if(p.source==='demo') title.textContent=p.name;
+  else {const titleLink=link(p.name,mapsUrl(p));titleLink.className='result-title-link';titleLink.setAttribute('aria-label','在 Google Maps 查看 '+p.name);title.append(titleLink);}
+  el.append(title,make('p',distanceLabel(p)+(p.address?' · '+p.address:''),'result-meta'));
   const actions=make('div',undefined,'result-actions');
   if(p.source!=='demo') {
-    actions.append(link('Google Maps 導航 ↗',mapsUrl(p,true)),button('今天就吃這家',()=>{
+    const view=link('在 Google Maps 查看餐廳 ↗',mapsUrl(p));view.className='maps-view';
+    const directions=link('步行導航',mapsUrl(p,true));directions.className='maps-directions';
+    actions.append(view,directions,button('記錄吃過',event=>{
       if(state.history.some(h=>h.id===p.id && Date.now()-h.at<60000))return;
       state.history.unshift({id:p.id,name:p.name,at:Date.now()});state.history=state.history.slice(0,500);persist();
-      status('已記錄「'+p.name+'」。開啟最近 7 天排除時，這家暫時不會再被抽到。');clearResult();update();
+      status('已記錄「'+p.name+'」。');event.currentTarget.textContent='已記錄';event.currentTarget.disabled=true;update();
     },'secondary'));
   }
-  actions.append(button('換一家',()=>{state.selected.delete(p.id);clearResult();update();if(pool().length)spin();else status('已排除剛剛的結果，其他候選都抽完了。可按全選重新開始。');},'secondary'));
+  actions.append(button('換一家',()=>{state.selected.delete(p.id);clearResult();update();if(pool().length)spin();else status('其他候選已抽完。打開候選名單按全選，可重新開始。');},'secondary'));
   el.append(actions);
+  if(p.source!=='demo') el.append(make('p','營業狀態與價格請到 Google Maps 確認。','result-note'));
+  if(matchMedia('(max-width:740px)').matches) document.querySelector('.wheel-card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'});
 }
 async function spin() {
   const candidates=pool();if(!candidates.length || state.busy)return;
   const picked=randomIndex(candidates.length),start=state.rotation,end=targetRotation(start,picked,candidates.length);
-  clearResult();const skip=$('quick').checked || matchMedia('(prefers-reduced-motion: reduce)').matches,unlock=lock();
+  clearResult();$('search-options').open=false;$('shortlist').open=false;const skip=$('quick').checked || matchMedia('(prefers-reduced-motion: reduce)').matches,unlock=lock();
   $('wheel-caption').textContent='命運正在挑選你的下一餐…';
   try {
     if(!skip) await new Promise(resolve=>{
@@ -203,6 +218,7 @@ async function spin() {
 $('spin').addEventListener('click',spin);
 update();
 if('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+
 
 
 

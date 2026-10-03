@@ -42,6 +42,9 @@ export function targetRotation(current, index, count) {
   return current + 5 * 360 + ((target - normalized + 360) % 360);
 }
 export function mapsUrl(place, navigation = false) {
-  const target = Number.isFinite(place.lat) && Number.isFinite(place.lon) ? `${place.lat},${place.lon}` : place.name;
-  return navigation ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(target)}&travelmode=walking` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name + (Number.isFinite(place.lat) ? ` ${place.lat},${place.lon}` : ''))}`;
+  const hasCoordinates=validateLocation(place.lat,place.lon);
+  const target=hasCoordinates ? `${place.lat},${place.lon}` : [place.name,place.address].filter(Boolean).join(' ');
+  if(navigation) return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(target)}&travelmode=walking`;
+  const query=[place.name,place.address || (hasCoordinates ? `${place.lat},${place.lon}` : '')].filter(Boolean).join(' ');
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }

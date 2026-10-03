@@ -49,3 +49,12 @@ test('maps links encode manual names and use real coordinates for navigation',()
   assert.equal(new URL(mapsUrl({name:'麵',lat:25,lon:121},true)).searchParams.get('destination'),'25,121');
 });
 
+
+test('restaurant detail link includes address and does not open directions',()=>{
+  const url=new URL(mapsUrl({name:'忠青商行',address:'台北市中正區公園路',lat:25.047,lon:121.517}));
+  assert.equal(url.pathname,'/maps/search/');
+  assert.equal(url.searchParams.get('api'),'1');
+  assert.equal(url.searchParams.get('query'),'忠青商行 台北市中正區公園路');
+  const fallback=new URL(mapsUrl({name:'麵店',lat:25,lon:121}));
+  assert.equal(fallback.searchParams.get('query'),'麵店 25,121');
+});
